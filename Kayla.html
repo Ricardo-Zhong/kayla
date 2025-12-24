@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kayla's Christmas Tree</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      canvas {
+        display: block;
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-family: sans-serif;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 10px 20px;
+        border-radius: 8px;
+        transition: opacity 0.5s;
+      }
+      /* New Greeting Text Style */
+      #greeting {
+        position: absolute;
+        top: 8%; /* Position at the top */
+        left: 0;
+        width: 100%;
+        text-align: center;
+        color: #ffffff; /* Changed to White */
+        /* Changed to Comic Sans MS */
+        font-family: "Comic Sans MS", "Comic Sans", cursive;
+        /* Adjusted font size for Comic Sans */
+        font-size: clamp(1rem, 3.5vw, 2.5rem);
+        font-weight: bold; /* Bold looks better for Comic Sans titles */
+        /* Soft Ice Blue Glow Effect */
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.8),
+          /* Inner White Glow */ 0 0 20px rgba(173, 216, 230, 0.6),
+          /* Light Blue (LightBlue) */ 0 0 30px rgba(135, 206, 250, 0.4); /* Outer Blue (LightSkyBlue) */
+        z-index: 100;
+        pointer-events: none; /* Let clicks pass through to the 3D scene */
+        opacity: 0; /* Start invisible */
+        transition: opacity 3s ease-in-out; /* Slow fade in */
+        letter-spacing: 2px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">Loading Christmas Magic...</div>
+    <!-- The Greeting Text -->
+    <div id="greeting">Kayla Merry Christmas</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+      // ------------------------------------------------------------------
+      // Setup Scene, Camera, Renderer
+      // ------------------------------------------------------------------
+      const scene = new THREE.Scene();
+      // Darker background to make Aurora pop
+      scene.background = new THREE.Color(0x000103);
+      // Fog blends the floor into the distance
+      scene.fog = new THREE.FogExp2(0x000103, 0.01);
+
+      const camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 5, 50);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+      document.body.appendChild(renderer.domElement);
+
+      // ------------------------------------------------------------------
+      // AURORA BOREALIS
+      // ------------------------------------------------------------------
+      const auroraVertexShader = `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `;
+
+      const auroraFragmentShader = `
+        uniform float uTime;
+        varying vec2 vUv;
+
+        // Simple noise function
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+
+        float noise(vec2 st) {
+            vec2 i = floor(st);
+            vec2 f = fract(st);
+            float a = random(i);
+            float b = random(i + vec2(1.0, 0.0));
+            float c = random(i + vec2(0.0, 1.0));
+            float d = random(i + vec2(1.0, 1.0));
+            vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+        }
+
+        void main() {
+            vec2 uv = vUv;
+            
+            // Create wavy curtain effect
+            float time = uTime * 0.2;
+            
+            // Displace X based on Y and Time to make it wave
+            float wave = sin(uv.x * 6.0 + time) * 0.1 + sin(uv.x * 12.0 + time * 1.5) * 0.05;
+            float line = abs(0.5 / (uv.y + wave - 0.5)); // Glow line
+            
+            // Generate Aurora Noise pattern
+            float n = noise(vec2(uv.x * 4.0 + time, uv.y * 2.0));
+            
+            // Vertical fade (only appear at top)
+            float alpha = smoothstep(0.3, 0.9, uv.y);
+            
+            // Vertical streaks
+            float streaks = sin(uv.x * 20.0 + time + n * 5.0);
+            streaks = smoothstep(0.4, 0.6, streaks);
+            
+            // Color Palette
+            vec3 colorGreen = vec3(0.1, 1.0, 0.6); // Aurora Green
+            vec3 colorPurple = vec3(0.6, 0.2, 1.0); // Aurora Purple
+            
+            // Mix colors based on height and noise
+            vec3 finalColor = mix(colorGreen, colorPurple, uv.y * 0.8 + n * 0.2);
+            
+            // Combine alpha masks
+            float intensity = alpha * (0.3 + 0.5 * n);
+            
+            // Add extra glow band
+            intensity += smoothstep(0.8, 0.9, n) * alpha * 0.5;
+
+            gl_FragColor = vec4(finalColor, intensity * 0.6); 
+        }
+      `;
+
+      const auroraUniforms = {
+        uTime: { value: 0 },
+      };
+
+      const auroraMaterial = new THREE.ShaderMaterial({
+        vertexShader: auroraVertexShader,
+        fragmentShader: auroraFragmentShader,
+        uniforms: auroraUniforms,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false, // Don't block stars
+      });
+
+      // UPDATED: Significantly increased size to cover full screen
+      const auroraGeometry = new THREE.PlaneGeometry(400, 200, 64, 64);
+      const auroraMesh = new THREE.Mesh(auroraGeometry, auroraMaterial);
+      auroraMesh.position.set(0, 20, -30);
+      scene.add(auroraMesh);
+
+      // ------------------------------------------------------------------
+      // Materials
+      // ------------------------------------------------------------------
+      const colBlack = new THREE.Color(0x1a1a1a); // Soft Charcoal Black
+      const colPureWhite = new THREE.Color(0xffffff);
+      const colDarkBlue = new THREE.Color(0x446699); // Steel Blue
+
+      // New Colors for 2D Shapes
+      const colGrey = new THREE.Color(0xaaaaaa);
+      const colLightBlue = new THREE.Color(0xaaddff);
+
+      // Sequin Colors (Cold Palette for 80% of sequins)
+      const sequinColors = [
+        new THREE.Color(0xffffff), // Silver/White
+        new THREE.Color(0xaaddff), // Light Blue
+        new THREE.Color(0x88ccff), // Deep Sky Blue
+        new THREE.Color(0xccccff), // Pale Lavender
+        new THREE.Color(0xdddddd), // Greyish Silver
+      ];
+      // Black Sequin Color (Dark Grey for metallic visibility)
+      const colSequinBlack = new THREE.Color(0x111111);
+
+      const particleMaterial = new THREE.MeshStandardMaterial({
+        roughness: 0.2,
+        metalness: 0.1,
+        flatShading: true,
+        emissive: 0x222222,
+        emissiveIntensity: 0.6,
+      });
+
+      // Material for 2D shapes (DoubleSide is essential)
+      const material2D = new THREE.MeshStandardMaterial({
+        roughness: 0.2,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        emissive: 0x222222,
+        emissiveIntensity: 0.5,
+      });
+
+      // --- FROSTED GLASS MATERIAL ---
+      const materialGlass = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        metalness: 0.1,
+        roughness: 0.5, // Frosted look
+        transmission: 0.9, // Glass-like
+        transparent: true,
+        thickness: 1.0,
+        envMapIntensity: 1.0,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.1,
+      });
+
+      // --- SEQUIN MATERIAL (High Metallic, Reflective) ---
+      const materialSequin = new THREE.MeshStandardMaterial({
+        color: 0xffffff, // Base color will be overwritten by instance color
+        metalness: 1.0, // Super shiny
+        roughness: 0.1, // Almost mirror
+        side: THREE.DoubleSide,
+        emissive: 0x222222,
+        emissiveIntensity: 0.2,
+      });
+
+      // --- NEW SNOWFLAKE GENERATION ---
+      function createSnowflakeTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext("2d");
+
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = "#aaddff"; // Blue glow
+
+        ctx.translate(32, 32);
+
+        for (let i = 0; i < 6; i++) {
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(0, -26);
+          ctx.stroke();
+
+          // branches
+          ctx.beginPath();
+          ctx.moveTo(0, -12);
+          ctx.lineTo(-8, -18);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(0, -12);
+          ctx.lineTo(8, -18);
+          ctx.stroke();
+
+          ctx.rotate(Math.PI / 3);
+        }
+        return new THREE.CanvasTexture(canvas);
+      }
+
+      const snowflakeTexture = createSnowflakeTexture();
+
+      const materialSnowflake = new THREE.MeshStandardMaterial({
+        map: snowflakeTexture,
+        transparent: true,
+        alphaTest: 0.1, // Clip invisible parts
+        side: THREE.DoubleSide,
+        emissive: 0x4488ff,
+        emissiveIntensity: 0.5,
+        roughness: 0.1,
+        metalness: 0.8,
+      });
+
+      // ------------------------------------------------------------------
+      // Data Management for Interaction
+      // ------------------------------------------------------------------
+      const particleData = [];
+
+      // ------------------------------------------------------------------
+      // The Tree Trunk
+      // ------------------------------------------------------------------
+      const treeGroup = new THREE.Group();
+      treeGroup.position.y = 2;
+      treeGroup.scale.set(1.2, 1.2, 1.2);
+      scene.add(treeGroup);
+
+      // 240% Size Increase
+      const geoSphere = new THREE.IcosahedronGeometry(0.72, 1);
+      const geoCube = new THREE.BoxGeometry(0.84, 0.84, 0.84);
+      const geoTetra = new THREE.TetrahedronGeometry(0.84);
+
+      // NEW: 2D Geometries
+      const geoDisc = new THREE.CircleGeometry(0.5, 32);
+      const geoPlane = new THREE.PlaneGeometry(0.7, 0.7);
+
+      // --- SNOWFLAKE SIZE INCREASED 100% (0.9 -> 1.8) ---
+      const geoSnowflake = new THREE.PlaneGeometry(1.8, 1.8);
+
+      // --- GLASS ORB GEOMETRY (Slightly smoother sphere) ---
+      const geoGlassOrb = new THREE.SphereGeometry(0.65, 32, 32);
+
+      // --- SEQUIN GEOMETRIES (Resized to match 3D shapes) ---
+      const geoSequinSquare = new THREE.PlaneGeometry(0.7, 0.7);
+      const geoSequinRound = new THREE.CircleGeometry(0.4, 32);
+
+      // --- Shape Distribution Logic ---
+
+      const countSphere = 126;
+      const countDisc = 180;
+      const countCube = 35;
+      const countTetra = 35;
+      const countPlane = 50;
+      const countSnowflake = 100;
+
+      const countGlass = 60;
+
+      // INCREASE SEQUINS BY 50%
+      // Old: 130 each. New: 130 * 1.5 = 195
+      const countSequinSquare = 195;
+      const countSequinRound = 195;
+
+      const meshSphere = new THREE.InstancedMesh(
+        geoSphere,
+        particleMaterial,
+        countSphere
+      );
+      const meshCube = new THREE.InstancedMesh(
+        geoCube,
+        particleMaterial,
+        countCube
+      );
+      const meshTetra = new THREE.InstancedMesh(
+        geoTetra,
+        particleMaterial,
+        countTetra
+      );
+
+      // NEW: Instanced Meshes for 2D shapes
+      const meshDisc = new THREE.InstancedMesh(geoDisc, material2D, countDisc);
+      const meshPlane = new THREE.InstancedMesh(
+        geoPlane,
+        material2D,
+        countPlane
+      );
+      const meshSnowflake = new THREE.InstancedMesh(
+        geoSnowflake,
+        materialSnowflake,
+        countSnowflake
+      );
+
+      // NEW: Glass Orbs Mesh
+      const meshGlass = new THREE.InstancedMesh(
+        geoGlassOrb,
+        materialGlass,
+        countGlass
+      );
+
+      // NEW: Sequins Meshes (Square & Round)
+      const meshSequinSquare = new THREE.InstancedMesh(
+        geoSequinSquare,
+        materialSequin,
+        countSequinSquare
+      );
+      const meshSequinRound = new THREE.InstancedMesh(
+        geoSequinRound,
+        materialSequin,
+        countSequinRound
+      );
+
+      const dummy = new THREE.Object3D();
+
+      // Function for 3D blocks
+      function fillInstancedMesh(mesh) {
+        // Use mesh.count to determine loop size
+        for (let i = 0; i < mesh.count; i++) {
+          // --- Gradient Distribution Logic ---
+          let y;
+          while (true) {
+            y = Math.random() * 20;
+            const t = y / 20;
+            const threshold = 1.0 - 0.65 * t;
+            if (Math.random() < threshold) {
+              break;
+            }
+          }
+
+          const maxRadius = 8 * (1 - y / 20);
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * maxRadius;
+
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+
+          dummy.position.set(x, y - 10, z);
+          dummy.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+          );
+
+          // --- SIZE GRADIENT LOGIC ---
+          const randomScale = 0.5 + Math.random() * 0.8;
+          const heightFactor = 1.0 - (y / 20) * 0.5;
+          const finalScale = randomScale * heightFactor;
+
+          dummy.scale.set(finalScale, finalScale, finalScale);
+          dummy.updateMatrix();
+
+          mesh.setMatrixAt(i, dummy.matrix);
+
+          // --- Color Probability Logic (Original) ---
+          const r = Math.random();
+          let baseColor;
+          if (r < 0.5) {
+            baseColor = colPureWhite;
+          } else if (r < 0.8) {
+            baseColor = colBlack;
+          } else {
+            baseColor = colDarkBlue;
+          }
+
+          mesh.setColorAt(i, baseColor);
+
+          particleData.push({
+            mesh: mesh,
+            index: i,
+            originalPosition: dummy.position.clone(),
+            currentPosition: dummy.position.clone(),
+            rotation: dummy.rotation.clone(),
+            baseScale: finalScale,
+            baseColor: baseColor.clone(),
+            velocity: new THREE.Vector3(),
+          });
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor.needsUpdate = true;
+        treeGroup.add(mesh);
+      }
+
+      // NEW Function for 2D shapes
+      function fill2DInstancedMesh(mesh, isSnowflake = false) {
+        for (let i = 0; i < mesh.count; i++) {
+          let y;
+          while (true) {
+            y = Math.random() * 20;
+            const t = y / 20;
+            const threshold = 1.0 - 0.65 * t;
+            if (Math.random() < threshold) {
+              break;
+            }
+          }
+
+          const maxRadius = 8 * (1 - y / 20);
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * maxRadius;
+
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+
+          dummy.position.set(x, y - 10, z);
+          // Random rotation
+          dummy.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+          );
+
+          const randomScale = 0.5 + Math.random() * 0.8;
+          const heightFactor = 1.0 - (y / 20) * 0.5;
+          const finalScale = randomScale * heightFactor;
+
+          dummy.scale.set(finalScale, finalScale, finalScale);
+          dummy.updateMatrix();
+
+          mesh.setMatrixAt(i, dummy.matrix);
+
+          // --- NEW COLOR LOGIC ---
+          let baseColor;
+          if (isSnowflake) {
+            baseColor = Math.random() > 0.5 ? colPureWhite : colLightBlue;
+          } else {
+            const r = Math.random();
+            if (r < 0.4) {
+              baseColor = colPureWhite;
+            } else if (r < 0.7) {
+              baseColor = colGrey;
+            } else {
+              baseColor = colLightBlue;
+            }
+          }
+
+          mesh.setColorAt(i, baseColor);
+
+          particleData.push({
+            mesh: mesh,
+            index: i,
+            originalPosition: dummy.position.clone(),
+            currentPosition: dummy.position.clone(),
+            rotation: dummy.rotation.clone(),
+            baseScale: finalScale,
+            baseColor: baseColor.clone(),
+            velocity: new THREE.Vector3(),
+          });
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor.needsUpdate = true;
+        treeGroup.add(mesh);
+      }
+
+      // Function specifically for Glass Orbs
+      function fillGlassMesh(mesh) {
+        for (let i = 0; i < mesh.count; i++) {
+          let y;
+          while (true) {
+            y = Math.random() * 20;
+            const t = y / 20;
+            const threshold = 1.0 - 0.65 * t;
+            if (Math.random() < threshold) {
+              break;
+            }
+          }
+
+          const maxRadius = 8 * (1 - y / 20);
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * maxRadius;
+
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+
+          dummy.position.set(x, y - 10, z);
+          dummy.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+          );
+
+          const randomScale = 0.5 + Math.random() * 0.8;
+          const heightFactor = 1.0 - (y / 20) * 0.5;
+          const finalScale = randomScale * heightFactor;
+
+          dummy.scale.set(finalScale, finalScale, finalScale);
+          dummy.updateMatrix();
+
+          mesh.setMatrixAt(i, dummy.matrix);
+
+          particleData.push({
+            mesh: mesh,
+            index: i,
+            originalPosition: dummy.position.clone(),
+            currentPosition: dummy.position.clone(),
+            rotation: dummy.rotation.clone(),
+            baseScale: finalScale,
+            baseColor: new THREE.Color(0xffffff), // Placeholder
+            velocity: new THREE.Vector3(),
+          });
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        treeGroup.add(mesh);
+      }
+
+      // --- NEW FUNCTION: Fill Sequins with Variety ---
+      function fillSequinMesh(mesh) {
+        for (let i = 0; i < mesh.count; i++) {
+          let y;
+          while (true) {
+            y = Math.random() * 20;
+            const t = y / 20;
+            const threshold = 1.0 - 0.65 * t;
+            if (Math.random() < threshold) {
+              break;
+            }
+          }
+
+          const maxRadius = 8 * (1 - y / 20);
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * maxRadius;
+
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+
+          dummy.position.set(x, y - 10, z);
+          // Random rotation - sequins spin a lot
+          dummy.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+          );
+
+          // --- SIZE MATCHING 3D SHAPES ---
+          const randomScale = 0.5 + Math.random() * 0.8;
+          const heightFactor = 1.0 - (y / 20) * 0.5;
+          const finalScale = randomScale * heightFactor;
+
+          dummy.scale.set(finalScale, finalScale, finalScale);
+          dummy.updateMatrix();
+
+          mesh.setMatrixAt(i, dummy.matrix);
+
+          // COLOR VARIETY: 20% Black, 80% Cold Palette
+          let baseColor;
+          if (Math.random() < 0.2) {
+            baseColor = colSequinBlack; // 20% Black
+          } else {
+            const colIndex = Math.floor(Math.random() * sequinColors.length);
+            baseColor = sequinColors[colIndex]; // 80% Random Cold
+          }
+
+          mesh.setColorAt(i, baseColor);
+
+          particleData.push({
+            mesh: mesh,
+            index: i,
+            originalPosition: dummy.position.clone(),
+            currentPosition: dummy.position.clone(),
+            rotation: dummy.rotation.clone(),
+            baseScale: finalScale,
+            baseColor: baseColor.clone(),
+            velocity: new THREE.Vector3(),
+          });
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor.needsUpdate = true;
+        treeGroup.add(mesh);
+      }
+
+      // Fill existing 3D shapes
+      fillInstancedMesh(meshSphere);
+      fillInstancedMesh(meshCube);
+      fillInstancedMesh(meshTetra);
+
+      // Fill new 2D shapes
+      fill2DInstancedMesh(meshDisc);
+      fill2DInstancedMesh(meshPlane);
+      // Fill Snowflakes (pass true for isSnowflake)
+      fill2DInstancedMesh(meshSnowflake, true);
+      // Fill Glass Orbs
+      fillGlassMesh(meshGlass);
+      // Fill Sequins (Square & Round with variety)
+      fillSequinMesh(meshSequinSquare);
+      fillSequinMesh(meshSequinRound);
+
+      // ------------------------------------------------------------------
+      // NEW: Independent Sparkle Layer
+      // ------------------------------------------------------------------
+      const sparkleGroup = new THREE.Group();
+      treeGroup.add(sparkleGroup);
+
+      // Create a soft glow texture for sparkles
+      const sparkleCanvas = document.createElement("canvas");
+      sparkleCanvas.width = 32;
+      sparkleCanvas.height = 32;
+      const sCtx = sparkleCanvas.getContext("2d");
+      const sGrad = sCtx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      sGrad.addColorStop(0, "rgba(255, 255, 255, 1)");
+      sGrad.addColorStop(0.4, "rgba(255, 255, 255, 0.5)");
+      sGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+      sCtx.fillStyle = sGrad;
+      sCtx.fillRect(0, 0, 32, 32);
+      const sparkleTexture = new THREE.CanvasTexture(sparkleCanvas);
+
+      const sparkles = [];
+      const sparkleCount = 60; // Number of random flashes
+
+      for (let i = 0; i < sparkleCount; i++) {
+        const material = new THREE.SpriteMaterial({
+          map: sparkleTexture,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0, // Start invisible
+          blending: THREE.AdditiveBlending,
+        });
+        const sprite = new THREE.Sprite(material);
+
+        // Initial random position (hidden)
+        sprite.position.set(0, -100, 0);
+        // INCREASED INITIAL SCALE (0.8 * 1.5 = 1.2)
+        sprite.scale.set(1.2, 1.2, 1.2);
+
+        sparkleGroup.add(sprite);
+
+        sparkles.push({
+          sprite: sprite,
+          active: false,
+          life: 0,
+          speed: 0,
+        });
+      }
+
+      function updateSparkles(delta) {
+        sparkles.forEach((s) => {
+          if (!s.active) {
+            // Chance to activate
+            if (Math.random() < 0.01) {
+              // 1% chance per frame to spawn
+              s.active = true;
+              s.life = 0;
+              s.speed = 1.0 + Math.random() * 2.0; // Random speed
+
+              // Random position within tree cone
+              const y = Math.random() * 20;
+              // Calculate base tree radius at this height
+              const treeRadius = 8 * (1 - y / 20);
+              // Add extra range to create outer halo (Tree radius + 5 units)
+              const maxR = treeRadius + 5.0;
+
+              const r = Math.random() * maxR;
+              const theta = Math.random() * Math.PI * 2;
+
+              s.sprite.position.set(
+                Math.cos(theta) * r,
+                y - 10,
+                Math.sin(theta) * r
+              );
+            }
+          } else {
+            // Animate lifecycle: Fade In -> Fade Out
+            s.life += delta * s.speed;
+
+            // Simple sine wave for opacity: 0 -> 1 -> 0
+            // Life goes from 0 to PI
+            if (s.life > Math.PI) {
+              s.active = false;
+              s.sprite.material.opacity = 0;
+            } else {
+              s.sprite.material.opacity = Math.sin(s.life);
+              // Slight scale pop - INCREASED BY 50%
+              const scale = (0.5 + Math.sin(s.life) * 0.5) * 1.5;
+              s.sprite.scale.set(scale, scale, scale);
+            }
+          }
+        });
+      }
+
+      // ------------------------------------------------------------------
+      // The Star Dust Spiral (Replaces the Tube)
+      // ------------------------------------------------------------------
+      const spiralPoints = [];
+      const spiralHeight = 22;
+      const loops = 4.5;
+      const pointsCount = 1500;
+
+      for (let i = 0; i <= pointsCount; i++) {
+        const t = i / pointsCount;
+        const y = t * spiralHeight - 10;
+        const r = 9 * (1 - t) + 0.5;
+        const angle = t * Math.PI * 2 * loops;
+        const x = Math.cos(angle) * r;
+        const z = Math.sin(angle) * r;
+        spiralPoints.push(new THREE.Vector3(x, y, z));
+      }
+
+      const spiralCurve = new THREE.CatmullRomCurve3(
+        spiralPoints,
+        false,
+        "centripetal",
+        0.1
+      );
+
+      // --- New Particle Spiral Implementation ---
+      const spiralDustGeo = new THREE.BufferGeometry();
+      const spiralDustCount = 4500; // High count for a dense "ring" look
+      const spiralDustPos = new Float32Array(spiralDustCount * 3);
+
+      for (let i = 0; i < spiralDustCount; i++) {
+        const t = i / spiralDustCount;
+        const point = spiralCurve.getPoint(t);
+
+        // Add random spread to create volume (like a ribbon/star ring)
+        const spread = 0.25;
+        // Random spherical offset
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI;
+        const offsetR = Math.random() * spread;
+
+        const offsetX = offsetR * Math.sin(phi) * Math.cos(theta);
+        const offsetY = offsetR * Math.sin(phi) * Math.sin(theta) * 0.5; // Less vertical spread to look flatter
+        const offsetZ = offsetR * Math.cos(phi);
+
+        spiralDustPos[i * 3] = point.x + offsetX;
+        spiralDustPos[i * 3 + 1] = point.y + offsetY;
+        spiralDustPos[i * 3 + 2] = point.z + offsetZ;
+      }
+
+      spiralDustGeo.setAttribute(
+        "position",
+        new THREE.BufferAttribute(spiralDustPos, 3)
+      );
+
+      // Texture for the spiral particles (Soft circle)
+      const ringCanvas = document.createElement("canvas");
+      ringCanvas.width = 32;
+      ringCanvas.height = 32;
+      const rCtx = ringCanvas.getContext("2d");
+      rCtx.beginPath();
+      rCtx.arc(16, 16, 14, 0, Math.PI * 2);
+      rCtx.fillStyle = "#ffffff"; // Pure white
+      rCtx.fill();
+      // Add a slight blur/glow edge
+      rCtx.shadowBlur = 4;
+      rCtx.shadowColor = "white";
+
+      const ringTexture = new THREE.CanvasTexture(ringCanvas);
+
+      const spiralDustMat = new THREE.PointsMaterial({
+        color: 0xffffff,
+        map: ringTexture,
+        size: 0.2, // Small and fine
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      });
+
+      const spiralDustSystem = new THREE.Points(spiralDustGeo, spiralDustMat);
+      treeGroup.add(spiralDustSystem);
+
+      // ------------------------------------------------------------------
+      // The Star (ICE VERSION)
+      // ------------------------------------------------------------------
+      function createStarShape(innerRadius, outerRadius, points) {
+        const shape = new THREE.Shape();
+        const step = Math.PI / points;
+        shape.moveTo(0, outerRadius);
+        for (let i = 0; i < 2 * points; i++) {
+          const radius = i % 2 === 0 ? outerRadius : innerRadius;
+          const angle = i * step;
+          shape.lineTo(Math.sin(angle) * radius, Math.cos(angle) * radius);
+        }
+        shape.closePath();
+        return shape;
+      }
+
+      const starShape = createStarShape(0.6, 1.5, 8);
+
+      const extrudeSettings = {
+        depth: 0.4,
+        bevelEnabled: true,
+        bevelThickness: 0.1,
+        bevelSize: 0.05,
+        bevelSegments: 4,
+      };
+
+      const starGeo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
+      starGeo.center();
+
+      const starMat = new THREE.MeshStandardMaterial({
+        color: 0xaaddff, // Ice Blue
+        emissive: 0x002244, // Deep Blue Glow
+        emissiveIntensity: 0.8,
+        roughness: 0.2, // Smooth ice
+        metalness: 0.1, // Not metallic
+        side: THREE.DoubleSide,
+        transparent: true, // Ice is see-through
+        opacity: 0.85,
+      });
+
+      const star = new THREE.Mesh(starGeo, starMat);
+      star.position.set(0, 16.5, 0);
+      star.scale.set(1.2, 1.2, 1.2);
+
+      scene.add(star);
+
+      // Lighting for the Star (Ice Blue)
+      const starKeyLight = new THREE.PointLight(0xaaddff, 2, 10);
+      starKeyLight.position.set(2, 18, 5);
+      scene.add(starKeyLight);
+
+      const starRimLight = new THREE.PointLight(0xffffff, 1, 10);
+      starRimLight.position.set(-2, 17, -5);
+      scene.add(starRimLight);
+
+      // Halo - Ice Blue Gradient
+      const canvas = document.createElement("canvas");
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext("2d");
+      const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      gradient.addColorStop(0, "rgba(200, 240, 255, 0.9)"); // Bright Ice Center
+      gradient.addColorStop(0.4, "rgba(100, 200, 255, 0.4)"); // Blue Halo
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 32, 32);
+      const starGlow = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: new THREE.CanvasTexture(canvas),
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      starGlow.scale.set(12, 12, 1);
+      star.add(starGlow);
+
+      // ------------------------------------------------------------------
+      // METEOR SYSTEM (FIXED: Independent Materials)
+      // ------------------------------------------------------------------
+      // Create a long thin plane with a gradient for the tail
+      const meteorLen = 15;
+      const meteorGeo = new THREE.PlaneGeometry(meteorLen, 0.4);
+      // Create gradient texture
+      const mCanvas = document.createElement("canvas");
+      mCanvas.width = 128;
+      mCanvas.height = 32;
+      const mCtx = mCanvas.getContext("2d");
+      const mGrad = mCtx.createLinearGradient(0, 0, 128, 0);
+      mGrad.addColorStop(0, "rgba(255, 255, 255, 0)"); // Tail (Transparent)
+      mGrad.addColorStop(0.8, "rgba(255, 255, 255, 0.5)"); // Mid body
+      mGrad.addColorStop(1, "rgba(255, 255, 255, 1)"); // Head (White)
+      mCtx.fillStyle = mGrad;
+      mCtx.fillRect(0, 0, 128, 32);
+
+      const meteorTexture = new THREE.CanvasTexture(mCanvas);
+
+      const meteorMaterial = new THREE.MeshBasicMaterial({
+        map: meteorTexture,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+
+      // Create a pool of Meteors
+      const maxMeteors = 5;
+      const meteorPool = [];
+      for (let i = 0; i < maxMeteors; i++) {
+        // FIX: Clone material so each meteor has independent opacity
+        const instanceMat = meteorMaterial.clone();
+        const mesh = new THREE.Mesh(meteorGeo, instanceMat);
+        mesh.position.set(0, -100, 0); // Hide initially
+        scene.add(mesh);
+        meteorPool.push({
+          mesh: mesh,
+          active: false,
+          speed: 0,
+        });
+      }
+
+      // Meteor Spawn Controller
+      const meteorControl = {
+        timer: 0,
+        nextSpawn: Math.random() * 5 + 5, // 5 to 10 seconds
+      };
+
+      function updateMeteor(delta) {
+        // 1. Check if we should spawn new meteors
+        meteorControl.timer += delta;
+        if (meteorControl.timer > meteorControl.nextSpawn) {
+          meteorControl.timer = 0;
+          meteorControl.nextSpawn = Math.random() * 5 + 5;
+
+          // Determine how many to spawn (1 to 3)
+          const countToSpawn = Math.floor(Math.random() * 3) + 1;
+
+          let spawned = 0;
+          // Loop through pool to find inactive ones
+          for (let i = 0; i < meteorPool.length; i++) {
+            if (!meteorPool[i].active && spawned < countToSpawn) {
+              const m = meteorPool[i];
+              m.active = true;
+              m.speed = 30 + Math.random() * 20; // Random speed 30-50
+
+              // Random Start Position (Top Right area)
+              // Spread them out a bit more
+              const startX = 30 + Math.random() * 40;
+              const startY = 25 + Math.random() * 20;
+              const startZ = -30 - Math.random() * 20; // Depth variation
+
+              m.mesh.position.set(startX, startY, startZ);
+
+              // Angle: Top-Right to Bottom-Left (approx -30 degrees)
+              // Add slight angle variation
+              const angle = Math.PI / 6 + Math.PI + (Math.random() * 0.2 - 0.1);
+              m.mesh.rotation.z = angle;
+              m.mesh.material.opacity = 1; // Ensure opacity is reset to 1
+
+              spawned++;
+            }
+          }
+        }
+
+        // 2. Update active meteors
+        meteorPool.forEach((m) => {
+          if (m.active) {
+            m.mesh.position.x -= m.speed * delta * 1.5;
+            m.mesh.position.y -= m.speed * delta * 0.8;
+
+            // Fade out near end or if out of bounds
+            if (m.mesh.position.y < -30 || m.mesh.position.x < -60) {
+              m.active = false;
+              m.mesh.material.opacity = 0;
+            }
+          }
+        });
+      }
+
+      // ------------------------------------------------------------------
+      // Lighting
+      // ------------------------------------------------------------------
+      // Moderate Ambient Light so blacks aren't washed out
+      const ambientLight = new THREE.AmbientLight(0x888888, 1.0);
+      scene.add(ambientLight);
+
+      const backLight = new THREE.SpotLight(0xaaccff, 5);
+      backLight.position.set(0, 10, -20);
+      backLight.lookAt(0, 0, 0);
+      scene.add(backLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      dirLight.position.set(10, 10, 10);
+      scene.add(dirLight);
+
+      const blueLight = new THREE.PointLight(0x0044ff, 1.5, 20);
+      blueLight.position.set(0, -5, 5);
+      scene.add(blueLight);
+
+      // ------------------------------------------------------------------
+      // Ambient Dust
+      // ------------------------------------------------------------------
+      const dustGeometry = new THREE.BufferGeometry();
+      const dustCount = 1500;
+      const dustPos = new Float32Array(dustCount * 3);
+      const dustSpeed = [];
+      for (let i = 0; i < dustCount * 3; i += 3) {
+        dustPos[i] = (Math.random() - 0.5) * 60;
+        dustPos[i + 1] = (Math.random() - 0.5) * 60;
+        dustPos[i + 2] = (Math.random() - 0.5) * 60;
+        dustSpeed.push({
+          y: Math.random() * 0.02 + 0.005,
+          x: (Math.random() - 0.5) * 0.01,
+          z: (Math.random() - 0.5) * 0.01,
+        });
+      }
+      dustGeometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(dustPos, 3)
+      );
+      const dustSystem = new THREE.Points(
+        dustGeometry,
+        new THREE.PointsMaterial({
+          color: 0x88ccff,
+          size: 0.2,
+          transparent: true,
+          opacity: 0.6,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      scene.add(dustSystem);
+
+      // ------------------------------------------------------------------
+      // Interactions (Scattering / Repulsion)
+      // ------------------------------------------------------------------
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2(1000, 1000);
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+      let rotationSpeed = 0.002;
+
+      function updateMouse(x, y) {
+        mouse.x = (x / window.innerWidth) * 2 - 1;
+        mouse.y = -(y / window.innerHeight) * 2 + 1;
+      }
+
+      document.addEventListener("mousemove", (e) => {
+        updateMouse(e.clientX, e.clientY);
+        if (isDragging) {
+          const deltaX = e.offsetX - previousMousePosition.x;
+          const deltaY = e.offsetY - previousMousePosition.y;
+          treeGroup.rotation.y += deltaX * 0.01;
+          treeGroup.rotation.x += deltaY * 0.01;
+          previousMousePosition = { x: e.offsetX, y: e.offsetY };
+        }
+      });
+
+      document.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        previousMousePosition = { x: e.offsetX, y: e.offsetY };
+      });
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      document.addEventListener(
+        "touchmove",
+        (e) => {
+          const touch = e.touches[0];
+          updateMouse(touch.clientX, touch.clientY);
+          if (isDragging) {
+            const deltaX = touch.clientX - previousMousePosition.x;
+            const deltaY = touch.clientY - previousMousePosition.y;
+            treeGroup.rotation.y += deltaX * 0.01;
+            treeGroup.rotation.x += deltaY * 0.01;
+            previousMousePosition = { x: touch.clientX, y: touch.clientY };
+            e.preventDefault();
+          }
+        },
+        { passive: false }
+      );
+      document.addEventListener(
+        "touchstart",
+        (e) => {
+          isDragging = true;
+          previousMousePosition = {
+            x: e.touches[0].clientX,
+            y: e.touches[0].clientY,
+          };
+        },
+        { passive: false }
+      );
+      document.addEventListener("touchend", () => {
+        isDragging = false;
+        mouse.set(1000, 1000);
+      });
+
+      // ------------------------------------------------------------------
+      // Animation Loop
+      // ------------------------------------------------------------------
+      const clock = new THREE.Clock();
+      const _inverseMatrix = new THREE.Matrix4();
+      const _ray = new THREE.Ray();
+      const _tempVec = new THREE.Vector3();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        const time = Date.now() * 0.001;
+
+        // Update Aurora Time
+        auroraUniforms.uTime.value = time;
+
+        if (!isDragging) {
+          treeGroup.rotation.y += rotationSpeed;
+        }
+
+        // Animate Star Rotation (To show 3D effect)
+        star.rotation.y = time * 0.5;
+        star.rotation.z = Math.sin(time * 0.5) * 0.1;
+
+        // --- Sparkle Animation ---
+        updateSparkles(delta);
+
+        // --- Meteor Animation ---
+        updateMeteor(delta);
+
+        // --- Scattering Logic ---
+        raycaster.setFromCamera(mouse, camera);
+
+        _inverseMatrix.copy(treeGroup.matrixWorld).invert();
+        _ray.copy(raycaster.ray).applyMatrix4(_inverseMatrix);
+
+        let needsUpdateSphere = false;
+        let needsUpdateCube = false;
+        let needsUpdateTetra = false;
+        let needsUpdateDisc = false;
+        let needsUpdatePlane = false;
+        let needsUpdateSnowflake = false;
+        let needsUpdateGlass = false;
+        let needsUpdateSequinSquare = false;
+        let needsUpdateSequinRound = false;
+
+        const interactionRadius = 3.5;
+        const repulsionStrength = 5.0;
+
+        for (let i = 0; i < particleData.length; i++) {
+          const p = particleData[i];
+
+          _ray.closestPointToPoint(p.originalPosition, _tempVec);
+          const distSq = p.originalPosition.distanceToSquared(_tempVec);
+
+          let targetX, targetY, targetZ;
+
+          if (distSq < interactionRadius * interactionRadius) {
+            // Repel
+            const dir = new THREE.Vector3()
+              .subVectors(p.originalPosition, _tempVec)
+              .normalize();
+            const dist = Math.sqrt(distSq);
+            const force = (1 - dist / interactionRadius) * repulsionStrength;
+
+            targetX = p.originalPosition.x + dir.x * force;
+            targetY = p.originalPosition.y + dir.y * force;
+            targetZ = p.originalPosition.z + dir.z * force;
+
+            // Interaction: Position only, color is NOT changed
+          } else {
+            // Return
+            targetX = p.originalPosition.x;
+            targetY = p.originalPosition.y;
+            targetZ = p.originalPosition.z;
+          }
+
+          const smoothFactor = delta * 5;
+          p.currentPosition.x += (targetX - p.currentPosition.x) * smoothFactor;
+          p.currentPosition.y += (targetY - p.currentPosition.y) * smoothFactor;
+          p.currentPosition.z += (targetZ - p.currentPosition.z) * smoothFactor;
+
+          const hasMoved =
+            p.currentPosition.distanceToSquared(p.originalPosition) > 0.001 ||
+            distSq < interactionRadius * interactionRadius;
+
+          if (hasMoved) {
+            dummy.position.copy(p.currentPosition);
+            dummy.rotation.copy(p.rotation);
+            dummy.rotation.x += time * 0.5;
+            dummy.rotation.y += time * 0.5;
+            dummy.scale.setScalar(p.baseScale);
+            dummy.updateMatrix();
+            p.mesh.setMatrixAt(p.index, dummy.matrix);
+
+            if (p.mesh === meshSphere) needsUpdateSphere = true;
+            else if (p.mesh === meshCube) needsUpdateCube = true;
+            else if (p.mesh === meshTetra) needsUpdateTetra = true;
+            else if (p.mesh === meshDisc) needsUpdateDisc = true;
+            else if (p.mesh === meshPlane) needsUpdatePlane = true;
+            else if (p.mesh === meshSnowflake) needsUpdateSnowflake = true;
+            else if (p.mesh === meshGlass) needsUpdateGlass = true;
+            else if (p.mesh === meshSequinSquare)
+              needsUpdateSequinSquare = true;
+            else if (p.mesh === meshSequinRound) needsUpdateSequinRound = true;
+          }
+        }
+
+        // Apply Matrix Updates (Position/Rotation)
+        if (needsUpdateSphere) meshSphere.instanceMatrix.needsUpdate = true;
+        if (needsUpdateCube) meshCube.instanceMatrix.needsUpdate = true;
+        if (needsUpdateTetra) meshTetra.instanceMatrix.needsUpdate = true;
+        if (needsUpdateDisc) meshDisc.instanceMatrix.needsUpdate = true;
+        if (needsUpdatePlane) meshPlane.instanceMatrix.needsUpdate = true;
+        if (needsUpdateSnowflake)
+          meshSnowflake.instanceMatrix.needsUpdate = true;
+        if (needsUpdateGlass) meshGlass.instanceMatrix.needsUpdate = true;
+        if (needsUpdateSequinSquare)
+          meshSequinSquare.instanceMatrix.needsUpdate = true;
+        if (needsUpdateSequinRound)
+          meshSequinRound.instanceMatrix.needsUpdate = true;
+
+        // --- Dust Animation ---
+        const dustPosArr = dustSystem.geometry.attributes.position.array;
+        for (let i = 0; i < dustCount; i++) {
+          dustPosArr[i * 3 + 1] -= dustSpeed[i].y;
+          dustPosArr[i * 3] += dustSpeed[i].x;
+          dustPosArr[i * 3 + 2] += dustSpeed[i].z;
+          if (dustPosArr[i * 3 + 1] < -30) dustPosArr[i * 3 + 1] = 30;
+        }
+        dustSystem.geometry.attributes.position.needsUpdate = true;
+
+        // --- Star Pulse ---
+        starGlow.material.opacity = 0.5 + Math.sin(time * 2) * 0.2;
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      document.getElementById("loading").style.display = "none";
+      // Reveal greeting
+      document.getElementById("greeting").style.opacity = "1";
+      animate();
+    </script>
+  </body>
+</html>
